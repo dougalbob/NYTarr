@@ -1,12 +1,27 @@
 services:
   nytarr:
+    image: ghcr.io/dougalbob/nytarr:latest
     build: .
-    container_name: nytarr
     restart: unless-stopped
+    stop_grace_period: 120s
     ports:
-      - "6810:6789"
+      - "${WEB_PORT:-6789}:6789"
     environment:
-      - TZ=Europe/London
+      TZ: ${TZ:-UTC}
+      PUID: ${PUID:-99}
+      PGID: ${PGID:-100}
+      PROWLARR_URL: ${PROWLARR_URL:-}
+      PROWLARR_API_KEY: ${PROWLARR_API_KEY:-}
+      PROWLARR_INDEXER: ${PROWLARR_INDEXER:-}
+      SABNZBD_URL: ${SABNZBD_URL:-}
+      SABNZBD_API_KEY: ${SABNZBD_API_KEY:-}
+      SABNZBD_CATEGORY: ${SABNZBD_CATEGORY:-nytarr}
+      DOWNLOAD_FOLDER: /downloads
+      MEDIA_FOLDER: /media
+      WEB_USER: ${WEB_USER:-admin}
+      WEB_PASSWORD: ${WEB_PASSWORD:-}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
     volumes:
-      - /mnt/user/appdata/nytarr:/config
-      - /mnt/user/data:/data
+      - ${CONFIG_PATH:-./config}:/config
+      - ${DOWNLOAD_PATH:?Set DOWNLOAD_PATH}:/downloads
+      - ${MEDIA_PATH:?Set MEDIA_PATH}:/media

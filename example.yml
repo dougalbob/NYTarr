@@ -1,17 +1,7 @@
-prowlarr:
-  url: http://UnraidIP:Port
-  api_key: prowlarrkey
-  indexer_name: NZBFinder
-sabnzbd:
-  url: http://UnraidIP:port
-  api_key: sabnzbdkey
-  category: nytarr
+# Routine preferences persist here; connection/path settings belong in the
+# Unraid template or Docker environment. See .env.example and README.md.
 schedule:
   search_start_hour: 12
   search_interval_hours: 2
-paths:
-  download_folder: /data/downloads/complete/nytarr
-  media_folder: /data/media/new_york_times
 backfill:
-  days: 5
-timezone: Europe/London
+  days: 3

@@ -17,35 +17,33 @@ from apscheduler.triggers.interval import IntervalTrigger
 
 from web import create_app
 
-# Paths (inside container)
-CONFIG_DIR = "/config"
-LOG_DIR = "/config/logs"
-CONFIG_PATH = os.path.join(CONFIG_DIR, "config.yml")
+from pathlib import Path
+import signal
+from config import ConfigStore, atomic_write, ready
+
+CONFIG_DIR = os.environ.get("CONFIG_DIR", "/config")
+LOG_DIR = os.path.join(CONFIG_DIR, "logs")
 STATE_PATH = os.path.join(CONFIG_DIR, "grabberstate.json")
-
-os.makedirs(LOG_DIR, exist_ok=True)
-
-# Logging setup
 logger = logging.getLogger("nytarr")
-logger.setLevel(logging.INFO)
-formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
-
-file_handler = RotatingFileHandler(
-    os.path.join(LOG_DIR, "nytarr.log"),
-    maxBytes=2_000_000,
-    backupCount=5,
-)
-file_handler.setFormatter(formatter)
-logger.addHandler(file_handler)
-
-stream_handler = logging.StreamHandler()
-stream_handler.setFormatter(formatter)
-logger.addHandler(stream_handler)
-
-# Locks
-state_lock = threading.Lock()
-config_lock = threading.Lock()
+state_lock = threading.RLock()
 run_lock = threading.Lock()
+stop_event = threading.Event()
+store = None
+
+
+def initialize():
+    global store
+    store = ConfigStore(CONFIG_DIR)
+    os.makedirs(LOG_DIR, exist_ok=True)
+    logger.setLevel(logging.INFO)
+    formatter = logging.Formatter("%(asctime)s [%(levelname)s] %(message)s")
+    for handler in (RotatingFileHandler(os.path.join(LOG_DIR, "nytarr.log"),
+                                       maxBytes=2_000_000, backupCount=5),
+                    logging.StreamHandler()):
+        handler.setFormatter(formatter)
+        logger.addHandler(handler)
+    load_state()  # Fail closed on corrupt history, never silently re-download it.
+
 
 MONTHS = [
     "January", "February", "March", "April", "May", "June",
@@ -60,34 +58,30 @@ NYT_REGEX = re.compile(
 
 
 def load_config():
-    with config_lock:
-        with open(CONFIG_PATH, "r") as f:
-            return yaml.safe_load(f)
+    return store.load()
 
 
 def save_config(cfg):
-    with config_lock:
-        with open(CONFIG_PATH, "w") as f:
-            yaml.safe_dump(cfg, f, sort_keys=False)
+    store.save(cfg)
 
 
 def load_state():
     with state_lock:
         if not os.path.exists(STATE_PATH):
             return {"downloads": {}}
-        try:
-            with open(STATE_PATH, "r") as f:
-                return json.load(f)
-        except Exception:
-            return {"downloads": {}}
+        state = json.loads(Path(STATE_PATH).read_text())
+        if not isinstance(state, dict) or not isinstance(state.get("downloads"), dict):
+            raise ValueError("Invalid download history; restore grabberstate.json from backup.")
+        for key, entry in state["downloads"].items():
+            datetime.strptime(key, "%Y-%m-%d")
+            if not isinstance(entry, dict):
+                raise ValueError("Invalid history entry.")
+        return state
 
 
 def save_state(state):
     with state_lock:
-        tmp = STATE_PATH + ".tmp"
-        with open(tmp, "w") as f:
-            json.dump(state, f, indent=2)
-        os.replace(tmp, STATE_PATH)
+        atomic_write(STATE_PATH, json.dumps(state, indent=2))
 
 
 def get_now_local(cfg):
@@ -120,7 +114,11 @@ def prowlarr_search(cfg, query):
                 if idx.get("name", "").lower() == indexer_name.lower():
                     indexer_ids.append(idx.get("id"))
         except Exception as e:
-            logger.error(f"Failed to fetch indexer list from Prowlarr: {e}")
+            logger.error(f"Failed to fetch indexer list from Prowlarr: {type(e).__name__}")
+
+    if indexer_name and not indexer_ids:
+        logger.error("Configured Prowlarr indexer unavailable; refusing unrestricted search.")
+        return []
 
     params = {"query": query, "type": "search", "limit": 100}
     if indexer_ids:
@@ -131,7 +129,7 @@ def prowlarr_search(cfg, query):
         r.raise_for_status()
         return r.json()
     except Exception as e:
-        logger.error(f"Prowlarr search failed: {e}")
+        logger.error(f"Prowlarr search failed: {type(e).__name__}")
         return []
 
 
@@ -176,17 +174,17 @@ def send_to_sabnzbd(cfg, nzb_url, nzb_name):
         "output": "json",
     }
     try:
-        r = requests.get(f"{base}/api/", params=params, timeout=30)
+        r = requests.post(f"{base}/api/", data=params, timeout=30)
         r.raise_for_status()
         data = r.json()
         if data.get("status"):
             nzo_ids = data.get("nzo_ids", [])
             return nzo_ids[0] if nzo_ids else None
         else:
-            logger.error(f"SABnzbd rejected NZB: {data}")
+            logger.error("SABnzbd rejected submission; check SABnzbd logs.")
             return None
     except Exception as e:
-        logger.error(f"Failed to send NZB to SABnzbd: {e}")
+        logger.error(f"Failed to send NZB to SABnzbd: {type(e).__name__}")
         return None
 
 
@@ -208,13 +206,13 @@ def sab_job_status(cfg, nzo_id):
             if s.get("nzo_id") == nzo_id:
                 return "queue"
     except Exception as e:
-        logger.error(f"Failed to query SAB queue: {e}")
+        logger.error(f"Failed to query SAB queue: {type(e).__name__}")
 
     # Check history
     try:
         r = requests.get(
             f"{base}/api/",
-            params={"mode": "history", "apikey": api_key, "output": "json", "limit": 50},
+            params={"mode": "history", "apikey": api_key, "output": "json", "nzo_ids": nzo_id, "limit": 100},
             timeout=15,
         )
         r.raise_for_status()
@@ -229,7 +227,7 @@ def sab_job_status(cfg, nzo_id):
                 else:
                     return "queue"
     except Exception as e:
-        logger.error(f"Failed to query SAB history: {e}")
+        logger.error(f"Failed to query SAB history: {type(e).__name__}")
 
     return "unknown"
 
@@ -267,11 +265,27 @@ def find_and_move_pdf(cfg, target_date):
                     return dst
 
                 try:
-                    shutil.move(src, dst)
+                    if os.path.islink(src) or not Path(src).resolve().is_relative_to(Path(download_folder).resolve()):
+                        continue
+                    with open(src, "rb") as source:
+                        if source.read(5) != b"%PDF-":
+                            logger.warning("Skipping file without a PDF header")
+                            continue
+                    tmp = dst + ".importing"
+                    try:
+                        with open(src, "rb") as source, open(tmp, "wb") as output:
+                            shutil.copyfileobj(source, output)
+                            output.flush()
+                            os.fsync(output.fileno())
+                        os.replace(tmp, dst)
+                        os.unlink(src)
+                    finally:
+                        if os.path.exists(tmp):
+                            os.unlink(tmp)
                     logger.info(f"Moved {src} -> {dst}")
                     return dst
                 except Exception as e:
-                    logger.error(f"Failed to move {src} -> {dst}: {e}")
+                    logger.error(f"Failed to move {src} -> {dst}: {type(e).__name__}")
                     return None
 
     return None
@@ -299,6 +313,11 @@ def process_date(cfg, target_date):
         save_state(state)
         return True
 
+    if entry.get("status") in ("submitting", "review", "failed"):
+        return False  # Explicit review required, never blindly resubmit.
+    if entry.get("status") == "downloading":
+        return monitor_entry(cfg, target_date, state, entry)
+
     query = f"The New York Times {target_date.strftime('%d %B %Y')}"
     logger.info(f"Searching Prowlarr for {key}: '{query}'")
     results = prowlarr_search(cfg, query)
@@ -321,9 +340,14 @@ def process_date(cfg, target_date):
         return False
 
     logger.info(f"Match found: {title} ({match.get('size', 0)} bytes) -> sending to SAB")
+    state["downloads"][key] = {"status": "submitting", "title": title,
+                                "queued_at": datetime.utcnow().isoformat() + "Z"}
+    save_state(state)  # Persist intent before performing a non-idempotent request.
     nzo_id = send_to_sabnzbd(cfg, nzb_url, title)
     if not nzo_id:
-        logger.error(f"Failed to enqueue in SABnzbd for {key}")
+        logger.error(f"Submission outcome uncertain for {key}; manual review required")
+        state["downloads"][key]["status"] = "review"
+        save_state(state)
         return False
 
     state["downloads"][key] = {
@@ -334,48 +358,51 @@ def process_date(cfg, target_date):
     }
     save_state(state)
 
-    # Wait 5 minutes, then poll SAB up to ~30 min
-    logger.info(f"Waiting 5 minutes before checking SAB for {key}")
-    time.sleep(300)
+    return False
 
-    deadline = time.time() + 30 * 60
-    while time.time() < deadline:
-        status = sab_job_status(cfg, nzo_id)
-        logger.info(f"SAB status for {key} ({nzo_id}): {status}")
+
+def monitor_entry(cfg, target_date, state, entry):
+    key = date_key(target_date)
+    if not entry.get("nzo_id"):
+        entry["status"] = "review"
+    else:
+        status = sab_job_status(cfg, entry["nzo_id"])
         if status == "history_ok":
-            break
-        if status == "history_fail":
-            logger.error(f"SAB reports failure for {key}")
-            state = load_state()
-            state["downloads"][key] = {
-                "status": "failed",
-                "nzo_id": nzo_id,
-                "title": title,
-                "failed_at": datetime.utcnow().isoformat() + "Z",
-            }
-            save_state(state)
-            return False
-        time.sleep(60)
-    else:
-        logger.warning(f"Timeout waiting for SAB completion for {key}")
+            moved = find_and_move_pdf(cfg, target_date)
+            if moved:
+                entry.update(status="completed", file=moved,
+                             completed_at=datetime.utcnow().isoformat() + "Z")
+            else:
+                logger.warning("Completed SAB job for %s awaiting matching PDF", key)
+        elif status == "history_fail":
+            entry.update(status="failed", failed_at=datetime.utcnow().isoformat() + "Z")
+        elif status == "unknown":
+            logger.warning("SAB job for %s not visible; retaining job ID, no resubmission", key)
+    state["downloads"][key] = entry
+    save_state(state)
+    return entry.get("status") == "completed"
 
-    # Try to move the PDF
-    moved = find_and_move_pdf(cfg, target_date)
-    if moved:
+
+def monitor_downloads():
+    if not run_lock.acquire(blocking=False):
+        return
+    try:
+        cfg = load_config()
+        if not ready(cfg):
+            return
         state = load_state()
-        state["downloads"][key] = {
-            "status": "completed",
-            "nzo_id": nzo_id,
-            "title": title,
-            "file": moved,
-            "completed_at": datetime.utcnow().isoformat() + "Z",
-        }
-        save_state(state)
-        logger.info(f"Successfully completed {key}")
-        return True
-    else:
-        logger.warning(f"Could not locate PDF for {key} after download")
-        return False
+        for key, entry in state["downloads"].items():
+            if stop_event.is_set():
+                break
+            if entry.get("status") == "submitting":
+                entry["status"] = "review"
+                save_state(state)
+            elif entry.get("status") == "downloading":
+                monitor_entry(cfg, datetime.strptime(key, "%Y-%m-%d").date(), state, entry)
+    except Exception as e:
+        logger.error("Monitor failed: %s", type(e).__name__)
+    finally:
+        run_lock.release()
 
 
 def run_cycle():
@@ -386,6 +413,9 @@ def run_cycle():
 
     try:
         cfg = load_config()
+        if not ready(cfg):
+            logger.info("Set service URLs and keys in container settings before searching.")
+            return
         now = get_now_local(cfg)
         backfill_days = int(cfg.get("backfill", {}).get("days", 3))
 
@@ -394,6 +424,8 @@ def run_cycle():
 
         state = load_state()
         for d in dates_to_try:
+            if stop_event.is_set():
+                break
             key = date_key(d)
             entry = state["downloads"].get(key, {})
             if entry.get("status") == "completed":
@@ -402,7 +434,7 @@ def run_cycle():
             try:
                 process_date(cfg, d)
             except Exception as e:
-                logger.exception(f"Error processing {key}: {e}")
+                logger.error(f"Error processing {key}: {type(e).__name__}")
             # reload state after each
             state = load_state()
     finally:
@@ -410,72 +442,57 @@ def run_cycle():
 
 
 def trigger_manual_search():
-    """Called from web UI."""
-    t = threading.Thread(target=run_cycle, daemon=True)
-    t.start()
+    # Queue through the single scheduler rather than spawning unbounded threads.
+    scheduler.add_job(run_cycle, id="manual_search", replace_existing=True)
+
+
+def search_trigger(cfg):
+    start = cfg["schedule"]["search_start_hour"]
+    interval = cfg["schedule"]["search_interval_hours"]
+    return CronTrigger(hour=",".join(str(h) for h in range(start, 24, interval)),
+                       minute=0, timezone=cfg["timezone"])
 
 
 def setup_scheduler(cfg):
-    scheduler = BackgroundScheduler(timezone=cfg.get("timezone", "Europe/London"))
+    worker = BackgroundScheduler(timezone=cfg["timezone"],
+                                 executors={"default": {"type": "threadpool", "max_workers": 1}},
+                                 job_defaults={"coalesce": True, "max_instances": 1})
+    worker.add_job(run_cycle, search_trigger(cfg), id="search")
+    worker.add_job(monitor_downloads, "interval", seconds=60, id="monitor",
+                   next_run_time=datetime.now(pytz.utc))
+    worker.start()
+    return worker
 
-    start_hour = int(cfg["schedule"]["search_start_hour"])
-    interval_hours = int(cfg["schedule"]["search_interval_hours"])
 
-    # Daily kick-off at start_hour
-    scheduler.add_job(
-        run_cycle,
-        CronTrigger(hour=start_hour, minute=0),
-        id="daily_start",
-        replace_existing=True,
-    )
-
-    # Recurring retries every N hours, but only between start_hour and 23:59
-    scheduler.add_job(
-        run_cycle,
-        IntervalTrigger(hours=interval_hours),
-        id="interval_retry",
-        replace_existing=True,
-    )
-
-    scheduler.start()
-    logger.info(f"Scheduler started. Daily at {start_hour}:00, retry every {interval_hours}h.")
-    return scheduler
+def reschedule(worker):
+    worker.reschedule_job("search", trigger=search_trigger(load_config()))
 
 
 def main():
-    logger.info("=" * 60)
-    logger.info("NYTarr starting up")
-    logger.info("=" * 60)
+    global scheduler
+    from waitress import create_server
+    os.umask(0o027)
+    initialize()
+    scheduler = setup_scheduler(load_config())
+    app = create_app(load_config, save_config, load_state,
+                     os.path.join(LOG_DIR, "nytarr.log"), trigger_manual_search,
+                     lambda: reschedule(scheduler))
+    app.config['HEALTH_CHECK'] = lambda: scheduler.running and not stop_event.is_set()
+    server = create_server(app, host="0.0.0.0", port=int(os.environ.get("PORT", "6789")),
+                           threads=4, clear_untrusted_proxy_headers=True)
 
-    cfg = load_config()
-    scheduler = setup_scheduler(cfg)
+    def shutdown(signum, frame):
+        stop_event.set()
+        raise SystemExit(0)
 
-    # Ensure state file exists
-    if not os.path.exists(STATE_PATH):
-        save_state({"downloads": {}})
-
-    # Start Flask
-    flask_app = create_app(
-        load_config=load_config,
-        save_config=save_config,
-        load_state=load_state,
-        log_path=os.path.join(LOG_DIR, "nytarr.log"),
-        trigger_manual_search=trigger_manual_search,
-        reschedule_cb=lambda: reschedule(scheduler),
-    )
-
-    flask_app.run(host="0.0.0.0", port=6789, debug=False, use_reloader=False)
-
-
-def reschedule(scheduler):
-    """Reload config and reschedule jobs after settings change."""
-    cfg = load_config()
-    start_hour = int(cfg["schedule"]["search_start_hour"])
-    interval_hours = int(cfg["schedule"]["search_interval_hours"])
-
-    scheduler.reschedule_job("daily_start", trigger=CronTrigger(hour=start_hour, minute=0))
-    scheduler.reschedule_job("interval_retry", trigger=IntervalTrigger(hours=interval_hours))
-    logger.info(f"Rescheduled: daily at {start_hour}:00, retry every {interval_hours}h.")
+    signal.signal(signal.SIGTERM, shutdown)
+    signal.signal(signal.SIGINT, shutdown)
+    try:
+        server.run()
+    finally:
+        stop_event.set()
+        scheduler.shutdown(wait=True)
+        server.close()
 
 
 if __name__ == "__main__":

@@ -1,0 +1,6 @@
+{% extends "base.html" %}
+{% block title %}Activity logs{% endblock %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">BEHIND THE EDITIONS</p><h1>Activity logs.</h1><p class="subtitle">Follow searches, downloads and library imports.</p></div><a class="button secondary" href="{{ url_for('logs') }}">Refresh logs ↻</a></div>
+<section class="panel"><div class="panel-heading"><div><h2>Application output</h2><p>Most recent 500 lines · Refresh to update</p></div><span class="mono-label">nytarr.log</span></div><pre class="log-output" tabindex="0" aria-label="Application logs">{{ lines or 'No activity recorded yet.' }}</pre></section>
+{% endblock %}

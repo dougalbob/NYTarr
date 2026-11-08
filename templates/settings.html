@@ -1,0 +1,15 @@
+{% extends "base.html" %}
+{% block title %}Settings{% endblock %}
+{% macro field(name, label, value, type='text', hint='', min='', max='') %}
+<div class="field"><label for="{{ name }}">{{ label }}</label><input id="{{ name }}" name="{{ name }}" type="{{ type }}" value="{{ value }}" {% if min != '' %}min="{{ min }}"{% endif %} {% if max != '' %}max="{{ max }}"{% endif %} {% if type == 'password' %}autocomplete="new-password" placeholder="Leave blank to keep current key"{% else %}required{% endif %} {% if hint %}aria-describedby="{{ name }}-hint"{% endif %}>{% if hint %}<small id="{{ name }}-hint">{{ hint }}</small>{% endif %}</div>
+{% endmacro %}
+{% block content %}
+<div class="page-heading"><div><p class="eyebrow">MAKE IT YOUR ROUTINE</p><h1>Settings.</h1><p class="subtitle">Your schedule, your archive, your way.</p></div></div>
+<form method="post" data-busy="Saving…"><input type="hidden" name="csrf_token" value="{{ csrf_token }}">
+<section class="panel settings-panel"><div class="section-intro"><span class="section-number">01 / ROUTINE</span><h2>Schedule & backfill</h2><p>Choose when to search and how far back to look for missing editions.</p></div><div class="form-grid">{{ field('start_hour', 'Daily start hour', cfg.schedule.search_start_hour, 'number', '24-hour clock, in the configured timezone.', 0, 23) }}{{ field('interval_hours', 'Retry interval (hours)', cfg.schedule.search_interval_hours, 'number', 'Retries after the start hour until midnight; monitoring runs all day.', 1, 24) }}{{ field('backfill_days', 'Previous days to search', cfg.backfill.days, 'number', 'Today plus this many previous days. Set 0 for today only.', 0, 30) }}<div class="field"><label>Timezone</label><div class="readonly-value">{{ cfg.get('timezone', 'Europe/London') }}</div><small>Managed by the container TZ setting.</small></div></div></section>
+<section class="panel settings-panel"><div class="section-intro"><span class="section-number">02 / DEPLOYMENT</span><h2>Container settings</h2><p>Managed by the Unraid template or Docker environment. Restart the container after changing these.</p></div><div class="form-grid">
+{% for label, value in [('Prowlarr URL', cfg.prowlarr.url), ('Indexer', cfg.prowlarr.indexer_name or 'All configured indexers'), ('SABnzbd URL', cfg.sabnzbd.url), ('Category', cfg.sabnzbd.category), ('Download folder', cfg.paths.download_folder), ('Archive folder', cfg.paths.media_folder)] %}<div class="field"><label>{{ label }}</label><div class="readonly-value">{{ value or 'Not configured' }}</div></div>{% endfor %}
+<div class="field"><label>Prowlarr API key</label><div class="readonly-value">{{ 'Configured' if cfg.prowlarr.api_key else 'Not configured' }}</div></div><div class="field"><label>SABnzbd API key</label><div class="readonly-value">{{ 'Configured' if cfg.sabnzbd.api_key else 'Not configured' }}</div></div></div></section>
+<div class="save-bar"><span>Changes apply after saving.</span><button class="button primary" type="submit">Save settings</button></div>
+</form>
+{% endblock %}
