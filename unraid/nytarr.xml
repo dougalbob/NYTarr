@@ -1,0 +1,32 @@
+<?xml version='1.0' encoding='utf-8'?>
+<Container version="2">
+  <Name>NYTarr</Name>
+  <Repository>ghcr.io/dougalbob/nytarr:latest</Repository>
+  <Registry>https://ghcr.io/dougalbob/nytarr</Registry>
+  <Network>bridge</Network>
+  <Privileged>false</Privileged>
+  <Support>https://github.com/dougalbob/NYTarr/issues</Support>
+  <Project>https://github.com/dougalbob/NYTarr</Project>
+  <Overview>Archive New York Times PDF editions through Prowlarr and SABnzbd. Configure scheduling and backfill in the web UI. Use only sources you are authorised to access.</Overview>
+  <Category>Downloaders:</Category>
+  <WebUI>http://[IP]:[PORT:6789]</WebUI>
+  <ExtraParams>--stop-timeout=120</ExtraParams>
+  <Config Name="Web port" Target="6789" Default="6789" Mode="tcp" Description="Web port" Type="Port" Display="always" Required="false" Mask="false">6789</Config>
+  <Config Name="Appdata" Target="/config" Default="/mnt/user/appdata/nytarr" Mode="rw" Description="Appdata" Type="Path" Display="always" Required="false" Mask="false">/mnt/user/appdata/nytarr</Config>
+  <Config Name="Completed downloads" Target="/downloads" Default="" Mode="rw" Description="Completed downloads" Type="Path" Display="always" Required="false" Mask="false" />
+  <Config Name="Archive" Target="/media" Default="" Mode="rw" Description="Archive" Type="Path" Display="always" Required="false" Mask="false" />
+  <Config Name="Timezone" Target="TZ" Default="Europe/London" Mode="" Description="Timezone" Type="Variable" Display="always" Required="false" Mask="false">Europe/London</Config>
+  <Config Name="User ID" Target="PUID" Default="99" Mode="" Description="User ID" Type="Variable" Display="always" Required="false" Mask="false">99</Config>
+  <Config Name="Group ID" Target="PGID" Default="100" Mode="" Description="Group ID" Type="Variable" Display="always" Required="false" Mask="false">100</Config>
+  <Config Name="Prowlarr URL" Target="PROWLARR_URL" Default="" Mode="" Description="Prowlarr URL" Type="Variable" Display="always" Required="false" Mask="false" />
+  <Config Name="Prowlarr API key" Target="PROWLARR_API_KEY" Default="" Mode="" Description="Prowlarr API key" Type="Variable" Display="always" Required="false" Mask="true" />
+  <Config Name="Prowlarr indexer (optional)" Target="PROWLARR_INDEXER" Default="" Mode="" Description="Prowlarr indexer (optional)" Type="Variable" Display="always" Required="false" Mask="false" />
+  <Config Name="SABnzbd URL" Target="SABNZBD_URL" Default="" Mode="" Description="SABnzbd URL" Type="Variable" Display="always" Required="false" Mask="false" />
+  <Config Name="SABnzbd API key" Target="SABNZBD_API_KEY" Default="" Mode="" Description="SABnzbd API key" Type="Variable" Display="always" Required="false" Mask="true" />
+  <Config Name="SABnzbd category" Target="SABNZBD_CATEGORY" Default="nytarr" Mode="" Description="SABnzbd category" Type="Variable" Display="always" Required="false" Mask="false">nytarr</Config>
+  <Config Name="Download container path" Target="DOWNLOAD_FOLDER" Default="/downloads" Mode="" Description="Download container path" Type="Variable" Display="always" Required="false" Mask="false">/downloads</Config>
+  <Config Name="Archive container path" Target="MEDIA_FOLDER" Default="/media" Mode="" Description="Archive container path" Type="Variable" Display="always" Required="false" Mask="false">/media</Config>
+  <Config Name="Web username" Target="WEB_USER" Default="admin" Mode="" Description="Web username" Type="Variable" Display="always" Required="false" Mask="false">admin</Config>
+  <Config Name="Web password (recommended)" Target="WEB_PASSWORD" Default="" Mode="" Description="Web password (recommended)" Type="Variable" Display="always" Required="false" Mask="true" />
+  <Config Name="HTTPS-only cookies" Target="COOKIE_SECURE" Default="false" Mode="" Description="HTTPS-only cookies" Type="Variable" Display="always" Required="false" Mask="false">false</Config>
+</Container>
