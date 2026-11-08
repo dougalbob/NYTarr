@@ -1,0 +1,12 @@
+services:
+  nytarr:
+    build: .
+    container_name: nytarr
+    restart: unless-stopped
+    ports:
+      - "6810:6789"
+    environment:
+      - TZ=Europe/London
+    volumes:
+      - /mnt/user/appdata/nytarr:/config
+      - /mnt/user/data:/data

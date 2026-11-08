@@ -1,0 +1,37 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="section">
+  <form method="POST" action="{{ url_for('search_now') }}" style="display:inline;">
+    <button type="submit">🔍 Search Now</button>
+  </form>
+</div>
+
+<div class="section">
+  <h2 style="margin-top:0;">Download History</h2>
+  {% if downloads %}
+  <table>
+    <thead>
+      <tr><th>Date</th><th>Status</th><th>Title / File</th><th>Timestamp</th></tr>
+    </thead>
+    <tbody>
+      {% for key, entry in downloads %}
+      <tr>
+        <td>{{ key }}</td>
+        <td class="status-{{ entry.status }}">{{ entry.status }}</td>
+        <td style="font-size:12px;">
+          {% if entry.file %}{{ entry.file }}
+          {% elif entry.title %}{{ entry.title }}
+          {% else %}—{% endif %}
+        </td>
+        <td style="font-size:12px;">
+          {{ entry.completed_at or entry.failed_at or entry.queued_at or entry.last_attempt or '' }}
+        </td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <p>No downloads yet.</p>
+  {% endif %}
+</div>
+{% endblock %}

@@ -1,0 +1,30 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="section">
+  <h2 style="margin-top:0;">Settings</h2>
+  <form method="POST">
+    <h3>Prowlarr</h3>
+    <label>URL <input name="prowlarr_url" value="{{ cfg.prowlarr.url }}"></label>
+    <label>API Key <input name="prowlarr_api_key" value="{{ cfg.prowlarr.api_key }}"></label>
+    <label>Indexer Name <input name="prowlarr_indexer" value="{{ cfg.prowlarr.indexer_name }}"></label>
+
+    <h3>SABnzbd</h3>
+    <label>URL <input name="sab_url" value="{{ cfg.sabnzbd.url }}"></label>
+    <label>API Key <input name="sab_api_key" value="{{ cfg.sabnzbd.api_key }}"></label>
+    <label>Category <input name="sab_category" value="{{ cfg.sabnzbd.category }}"></label>
+
+    <h3>Schedule</h3>
+    <label>Start Hour (0-23) <input type="number" min="0" max="23" name="start_hour" value="{{ cfg.schedule.search_start_hour }}"></label>
+    <label>Retry Interval (hours) <input type="number" min="1" max="24" name="interval_hours" value="{{ cfg.schedule.search_interval_hours }}"></label>
+
+    <h3>Paths</h3>
+    <label>Download Folder <input name="download_folder" value="{{ cfg.paths.download_folder }}"></label>
+    <label>Media Folder <input name="media_folder" value="{{ cfg.paths.media_folder }}"></label>
+
+    <h3>Backfill</h3>
+    <label>Backfill Days (max 3 recommended) <input type="number" min="0" max="7" name="backfill_days" value="{{ cfg.backfill.days }}"></label>
+
+    <button type="submit">Save Settings</button>
+  </form>
+</div>
+{% endblock %}
