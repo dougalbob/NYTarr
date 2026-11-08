@@ -8,6 +8,7 @@
   <Support>https://github.com/dougalbob/NYTarr/issues</Support>
   <Project>https://github.com/dougalbob/NYTarr</Project>
   <Overview>Archive New York Times PDF editions through Prowlarr and SABnzbd. Configure scheduling and backfill in the web UI. Use only sources you are authorised to access.</Overview>
+  <Icon>https://raw.githubusercontent.com/dougalbob/NYTarr/main/static/icon.png</Icon>
   <Category>Downloaders:</Category>
   <WebUI>http://[IP]:[PORT:6789]</WebUI>
   <ExtraParams>--stop-timeout=120</ExtraParams>
